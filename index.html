@@ -35,14 +35,19 @@
 <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "react/jsx-runtime": "https://esm.sh/react@19.0.0/jsx-runtime",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
 </script>
 </head>
-<body>
+<body class="bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
   <div id="root"></div>
+  <!-- Essential: Include the entry point script so it executes on static hosts -->
+  <script type="module" src="./index.tsx"></script>
 </body>
 </html>
