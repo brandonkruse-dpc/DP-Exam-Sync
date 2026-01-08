@@ -86,7 +86,7 @@ export default function TimerCard({ timer, onUpdate, onDelete, isReadOnly, isDar
             ${formatTime(timer.remainingSeconds)}
           </div>
           
-          <div className=${`w-full h-3 rounded-full overflow-hidden mb-8 ${isDarkMode ? 'bg-slate-900' : 'bg-slate-100'}`}>
+          <div className=${`w-full h-5 rounded-full overflow-hidden mb-8 border-[3px] ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-300'}`}>
             <div className=${`h-full transition-all duration-1000 linear ${timer.remainingSeconds < 60 ? 'bg-rose-500' : 'bg-indigo-500'}`} style=${{ width: `${progress}%` }}></div>
           </div>
           
