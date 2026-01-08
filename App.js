@@ -5,7 +5,7 @@ import TimerCard from './components/TimerCard.js';
 
 const html = htm.bind(React.createElement);
 const MAX_TIMERS = 12;
-const MAX_SLAVES = 4;
+const MAX_CHILDREN = 4;
 const DEFAULT_TIMER_SECONDS = 3600; 
 const RECONNECT_INTERVAL = 3000;
 
@@ -58,7 +58,8 @@ export default function App() {
   const initPeer = () => {
     if (peerRef.current && !peerRef.current.destroyed) return;
 
-    const shortId = Math.floor(100000 + Math.random() * 900000).toString();
+    // Generate a 4-digit ID instead of 6
+    const shortId = Math.floor(1000 + Math.random() * 9000).toString();
     const peer = new window.Peer(shortId, {
       debug: 1,
       config: {
@@ -98,9 +99,9 @@ export default function App() {
     // Master Logic: Handle incoming connections
     peer.on('connection', (conn) => {
       const activeConns = connectionsRef.current.filter(c => c.open);
-      if (activeConns.length >= MAX_SLAVES) {
+      if (activeConns.length >= MAX_CHILDREN) {
         conn.on('open', () => {
-          conn.send({ type: 'ERROR', message: 'Master node full (Max 4).' });
+          conn.send({ type: 'ERROR', message: 'Parent node full (Max 4).' });
           setTimeout(() => conn.close(), 500);
         });
         return;
@@ -156,7 +157,7 @@ export default function App() {
   }, [role]);
 
   // Connect function (Used by Slave)
-  const connectToMaster = (forcedId) => {
+  const connectToParent = (forcedId) => {
     const target = forcedId || targetId;
     if (!target || !peerRef.current || peerRef.current.destroyed) {
       if (!peerRef.current || peerRef.current.destroyed) initPeer();
@@ -164,7 +165,6 @@ export default function App() {
     }
     
     setConnectionStatus('connecting');
-    // Ensure we close any stale connections before opening a new one
     connectionsRef.current.forEach(c => c.close());
     
     const conn = peerRef.current.connect(target, { 
@@ -191,16 +191,16 @@ export default function App() {
       }
     });
 
-    const handleSlaveDisconnect = () => {
+    const handleChildDisconnect = () => {
       if (roleRef.current === 'slave') {
         setConnectionStatus('reconnecting');
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = setTimeout(() => connectToMaster(target), RECONNECT_INTERVAL);
+        reconnectTimeoutRef.current = setTimeout(() => connectToParent(target), RECONNECT_INTERVAL);
       }
     };
 
-    conn.on('close', handleSlaveDisconnect);
-    conn.on('error', handleSlaveDisconnect);
+    conn.on('close', handleChildDisconnect);
+    conn.on('error', handleChildDisconnect);
   };
 
   const disconnectAll = () => {
@@ -259,7 +259,7 @@ export default function App() {
           <div className="h-64 border-4 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-slate-400">
             <svg className="w-16 h-16 mb-4 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             <p className="font-bold text-lg">Cluster Inactive</p>
-            <p className="text-sm">Master node must initialize sequences.</p>
+            <p className="text-sm">Parent node must initialize sequences.</p>
           </div>
         ` : html`
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -288,7 +288,7 @@ export default function App() {
                   <p className="text-xl font-mono font-bold text-indigo-500 select-all tracking-widest">${peerId || '...'}</p>
                   ${role === 'master' && html`
                     <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">
-                      Master • ${connectedPeersCount} / ${MAX_SLAVES} Sync Active
+                      Parent • ${connectedPeersCount} / ${MAX_CHILDREN} Sync Active
                     </span>
                   `}
                 </div>
@@ -301,16 +301,16 @@ export default function App() {
                   type="text"
                   value=${targetId} 
                   onChange=${(e) => setTargetId(e.target.value)} 
-                  placeholder="Master ID" 
+                  placeholder="Parent ID" 
                   className=${`flex-1 lg:w-48 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
                 />
-                <button onClick=${() => connectToMaster()} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-500/20">Join Network</button>
+                <button onClick=${() => connectToParent()} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-500/20">Join Parent</button>
               </div>
             ` : html`
               <div className="flex items-center gap-6">
                 <div className="flex flex-col items-end">
-                   <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role === 'slave' ? 'Slave Node Synced' : 'Cluster Authority'}</span>
-                   ${role === 'slave' && connectionStatus === 'reconnecting' && html`<span className="text-[10px] text-amber-500 font-bold animate-pulse">Searching for Master...</span>`}
+                   <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role === 'slave' ? 'Child Node Synced' : 'Cluster Authority (Parent)'}</span>
+                   ${role === 'slave' && connectionStatus === 'reconnecting' && html`<span className="text-[10px] text-amber-500 font-bold animate-pulse">Searching for Parent...</span>`}
                 </div>
                 <button onClick=${disconnectAll} className="px-4 py-2 bg-rose-500/10 text-rose-500 rounded-xl font-bold text-xs hover:bg-rose-500 hover:text-white transition-all">Disconnect</button>
               </div>
