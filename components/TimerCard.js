@@ -82,8 +82,10 @@ export default function TimerCard({ timer, onUpdate, onDelete, isReadOnly, isDar
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Initial: ${formatTime(timer.initialSeconds)}</p>
           </div>
           
-          <div className=${`text-6xl font-mono-custom font-black text-center mb-6 tracking-tighter tabular-nums ${timer.isRunning ? 'text-indigo-500 animate-pulse' : isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            ${formatTime(timer.remainingSeconds)}
+          <div className=${`mb-6 p-4 rounded-2xl flex items-center justify-center transition-colors duration-300 ${isDarkMode ? 'bg-black' : 'bg-white border border-slate-200'}`}>
+            <div className=${`text-6xl font-mono-custom font-black tracking-tighter tabular-nums ${isDarkMode ? 'text-white' : 'text-black'}`}>
+              ${formatTime(timer.remainingSeconds)}
+            </div>
           </div>
           
           <div className=${`w-full h-5 rounded-full overflow-hidden mb-8 border-[3px] ${isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-slate-100 border-slate-300'}`}>

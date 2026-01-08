@@ -6,7 +6,7 @@ import TimerCard from './components/TimerCard.js';
 const html = htm.bind(React.createElement);
 const MAX_TIMERS = 12;
 const MAX_CHILDREN = 4;
-const DEFAULT_TIMER_SECONDS = 3600; 
+const DEFAULT_TIMER_SECONDS = 300; // Updated to 5 minutes
 const RECONNECT_INTERVAL = 5000; 
 
 export default function App() {
@@ -78,7 +78,8 @@ export default function App() {
       peerRef.current = null;
     }
 
-    const assignedId = preferredId || Math.floor(1000 + Math.random() * 9000).toString();
+    // Updated: Default code for freshly generated clocks is 2163
+    const assignedId = preferredId || (peerId === '' ? '2163' : Math.floor(1000 + Math.random() * 9000).toString());
     console.log(`[Networking] Initializing Peer Node with ID: ${assignedId}`);
 
     const peer = new window.Peer(assignedId, {
@@ -128,8 +129,8 @@ export default function App() {
         console.log(`[Networking] Fatal error encountered. Scheduling re-initialization in ${RECONNECT_INTERVAL}ms...`);
         setTimeout(() => initPeer(assignedId), RECONNECT_INTERVAL);
       } else if (err.type === 'unavailable-id') {
-        console.warn('[Networking] ID unavailable, trying a fresh ID...');
-        setTimeout(() => initPeer(), 1000);
+        console.warn('[Networking] ID unavailable, trying a fresh random ID...');
+        setTimeout(() => initPeer(Math.floor(1000 + Math.random() * 9000).toString()), 500);
       }
     });
 
