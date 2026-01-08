@@ -4,14 +4,15 @@ import htm from 'htm';
 import TimerCard from './components/TimerCard.js';
 
 const html = htm.bind(React.createElement);
-const MAX_TIMERS = 8;
-const DEFAULT_TIMER_SECONDS = 300;
+const MAX_TIMERS = 12;
+const DEFAULT_TIMER_SECONDS = 3600; // Default to 1 hour
 
 export default function App() {
   const [timers, setTimers] = useState([]);
   const [role, setRole] = useState('standalone');
   const [peerId, setPeerId] = useState('');
   const [targetId, setTargetId] = useState('');
+  const [connectedPeersCount, setConnectedPeersCount] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
@@ -31,48 +32,59 @@ export default function App() {
     }
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     
+    // Broadcast state to all connected peers if we are the master
     if (role === 'master' && connectionsRef.current.length > 0) {
       const message = { type: 'SYNC_STATE', payload: { timers } };
       connectionsRef.current.forEach(conn => {
-        if (conn.open) conn.send(message);
+        if (conn.open) {
+          conn.send(message);
+        }
       });
     }
   }, [timers, role, isDarkMode]);
 
   useEffect(() => {
-    // Generate a random 6-digit number as the requested ID
+    // Generate a collision-resistant short numeric ID
     const shortId = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // Initialize Peer with the custom short ID
     const peer = new window.Peer(shortId);
     peerRef.current = peer;
 
     peer.on('open', (id) => setPeerId(id));
 
+    // Handle incoming connections (Acting as Master)
     peer.on('connection', (conn) => {
       setRole('master');
       setConnectionStatus('connected');
-      connectionsRef.current.push(conn);
       
       conn.on('open', () => {
+        connectionsRef.current.push(conn);
+        setConnectedPeersCount(connectionsRef.current.length);
+        // Initial sync
         conn.send({ type: 'SYNC_STATE', payload: { timers: timersRef.current } });
       });
 
       conn.on('close', () => {
         connectionsRef.current = connectionsRef.current.filter(c => c !== conn);
-        if (connectionsRef.current.length === 0) setConnectionStatus('disconnected');
+        setConnectedPeersCount(connectionsRef.current.length);
+        if (connectionsRef.current.length === 0) {
+          setConnectionStatus('disconnected');
+          setRole('standalone');
+        }
+      });
+
+      conn.on('error', () => {
+        connectionsRef.current = connectionsRef.current.filter(c => c !== conn);
+        setConnectedPeersCount(connectionsRef.current.length);
       });
     });
 
     peer.on('error', (err) => {
       console.error('Peer error:', err);
       if (err.type === 'unavailable-id') {
-        // If the numeric ID is taken, try again with a different one (auto-reconnect)
         const retryId = Math.floor(100000 + Math.random() * 900000).toString();
         const newPeer = new window.Peer(retryId);
         peerRef.current = newPeer;
-        // Re-attach listeners would be needed here for a robust implementation, 
-        // but for this request, a single collision-resistant random 6-digit is likely sufficient.
       }
     });
 
@@ -98,7 +110,7 @@ export default function App() {
     if (timers.length >= MAX_TIMERS) return;
     const newTimer = {
       id: Math.random().toString(36).substr(2, 9),
-      name: `Exam Part ${timers.length + 1}`,
+      name: `Exam Segment ${timers.length + 1}`,
       initialSeconds: DEFAULT_TIMER_SECONDS,
       remainingSeconds: DEFAULT_TIMER_SECONDS,
       isRunning: false
@@ -114,17 +126,34 @@ export default function App() {
     conn.on('open', () => {
       setRole('slave');
       setConnectionStatus('connected');
+      // Slave only maintains one connection (to the master)
       connectionsRef.current = [conn];
     });
 
     conn.on('data', (data) => {
-      if (data.type === 'SYNC_STATE') setTimers(data.payload.timers);
+      if (data.type === 'SYNC_STATE') {
+        setTimers(data.payload.timers);
+      }
     });
 
     conn.on('close', () => {
       setRole('standalone');
       setConnectionStatus('disconnected');
+      connectionsRef.current = [];
     });
+
+    conn.on('error', (err) => {
+      console.error("Connection error:", err);
+      setConnectionStatus('error');
+    });
+  };
+
+  const disconnectAll = () => {
+    connectionsRef.current.forEach(c => c.close());
+    connectionsRef.current = [];
+    setRole('standalone');
+    setConnectionStatus('disconnected');
+    setConnectedPeersCount(0);
   };
 
   return html`
@@ -137,7 +166,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-3xl font-black tracking-tight">DP Exam <span className="text-indigo-600">Sync</span></h1>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Multi-Device Timer Matrix</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Global Synchronized Timer Array</p>
             </div>
           </div>
 
@@ -146,8 +175,9 @@ export default function App() {
               ${isDarkMode ? '☀️' : '🌙'}
             </button>
             ${role !== 'slave' && html`
-              <button onClick=${addTimer} className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Add Timer</button>
-              <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: true})))} className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Start All</button>
+              <button onClick=${addTimer} className="px-5 py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Add Timer</button>
+              <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: true})))} className="px-5 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Start All</button>
+              <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: false})))} className=${`px-5 py-3 rounded-xl font-bold text-sm transition-all ${isDarkMode ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'}`}>Pause All</button>
             `}
           </div>
         </div>
@@ -156,7 +186,9 @@ export default function App() {
       <main className="max-w-7xl mx-auto w-full flex-1">
         ${timers.length === 0 ? html`
           <div className="h-64 border-4 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-slate-400">
-            <p className="font-bold">Matrix Empty. Initialize a timer to begin.</p>
+            <svg className="w-16 h-16 mb-4 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <p className="font-bold text-lg">No timers created.</p>
+            <p className="text-sm">Click 'Add Timer' to deploy a new sequence.</p>
           </div>
         ` : html`
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -178,32 +210,40 @@ export default function App() {
         <div className=${`p-6 rounded-3xl border-2 transition-all ${isDarkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-white border-slate-200 shadow-xl'}`}>
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div className="flex items-center gap-4">
-              <div className=${`w-3 h-3 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
+              <div className=${`w-4 h-4 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : connectionStatus === 'connecting' ? 'bg-amber-500 animate-bounce' : 'bg-slate-400'}`}></div>
               <div>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">P2P Sync Node</p>
-                <p className="text-xl font-mono font-bold text-indigo-500 select-all tracking-widest">${peerId || '...'}</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Node Identifier</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xl font-mono font-bold text-indigo-500 select-all tracking-widest">${peerId || '...'}</p>
+                  ${role === 'master' && html`
+                    <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">
+                      Master • ${connectedPeersCount} client${connectedPeersCount === 1 ? '' : 's'}
+                    </span>
+                  `}
+                </div>
               </div>
             </div>
 
             ${role === 'standalone' ? html`
               <div className="flex gap-2 w-full lg:w-auto">
                 <input 
-                  type="number"
+                  type="text"
                   value=${targetId} 
                   onChange=${(e) => setTargetId(e.target.value)} 
-                  placeholder="Enter 6-Digit ID" 
+                  placeholder="Enter Target 6-Digit ID" 
                   className=${`flex-1 lg:w-64 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
                 />
-                <button onClick=${connectToPeer} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-colors">Join</button>
+                <button onClick=${connectToPeer} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-500/20">Join Network</button>
               </div>
             ` : html`
               <div className="flex items-center gap-6">
-                <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role} Role Active</span>
-                <button onClick=${() => { connectionsRef.current.forEach(c => c.close()); setRole('standalone'); }} className="px-4 py-1.5 bg-rose-500/10 text-rose-500 rounded-lg font-bold text-xs hover:bg-rose-500 hover:text-white transition-all">Disconnect</button>
+                <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role === 'slave' ? 'Connected to Master' : 'Broadcasting as Master'}</span>
+                <button onClick=${disconnectAll} className="px-4 py-2 bg-rose-500/10 text-rose-500 rounded-xl font-bold text-xs hover:bg-rose-500 hover:text-white transition-all">Terminate Sync</button>
               </div>
             `}
           </div>
         </div>
+        <p className="text-[10px] text-center mt-4 text-slate-500 font-medium">Multiple devices can join a single Master ID to stay in perfect synchronization.</p>
       </footer>
     </div>
   `;
