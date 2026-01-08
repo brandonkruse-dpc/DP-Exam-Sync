@@ -1,0 +1,5 @@
+{
+  "name": "DP Exam Sync",
+  "description": "A high-performance multi-timer PWA with real-time peer-to-peer synchronization across devices.",
+  "requestFramePermissions": []
+}
