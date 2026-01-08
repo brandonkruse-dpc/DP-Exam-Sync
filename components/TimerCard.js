@@ -25,44 +25,63 @@ export default function TimerCard({ timer, onUpdate, onDelete, isReadOnly, isDar
   const progress = (timer.remainingSeconds / timer.initialSeconds) * 100;
 
   return html`
-    <div className=${`relative p-6 rounded-2xl border-2 transition-all ${timer.isRunning ? 'border-indigo-500 shadow-lg' : isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+    <div className=${`relative p-6 rounded-3xl border-2 transition-all duration-300 ${timer.isRunning ? 'border-indigo-500 ring-4 ring-indigo-500/10 scale-[1.02]' : isDarkMode ? 'bg-slate-800/80 border-slate-700' : 'bg-white border-slate-200 shadow-lg'}`}>
       ${!isReadOnly && html`
-        <button onClick=${() => onDelete(timer.id)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500">×</button>
+        <button onClick=${() => onDelete(timer.id)} className="absolute top-4 right-4 text-slate-400 hover:text-rose-500 transition-colors">
+           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
       `}
 
       ${isEditing ? html`
         <div className="space-y-4">
-          <input value=${editName} onChange=${e => setEditName(e.target.value)} className="w-full bg-slate-900 text-white rounded-lg p-2 text-sm" />
+          <input value=${editName} onChange=${e => setEditName(e.target.value)} className=${`w-full rounded-xl p-3 text-sm font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`} />
           <div className="flex gap-2">
-            <input type="number" value=${editMinutes} onChange=${e => setEditMinutes(e.target.value)} className="w-full bg-slate-900 text-white rounded-lg p-2 text-sm" />
-            <input type="number" value=${editSeconds} onChange=${e => setEditSeconds(e.target.value)} className="w-full bg-slate-900 text-white rounded-lg p-2 text-sm" />
+            <div className="flex-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Minutes</label>
+              <input type="number" value=${editMinutes} onChange=${e => setEditMinutes(e.target.value)} className=${`w-full rounded-xl p-3 text-sm font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Seconds</label>
+              <input type="number" value=${editSeconds} onChange=${e => setEditSeconds(e.target.value)} className=${`w-full rounded-xl p-3 text-sm font-bold ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} />
+            </div>
           </div>
-          <button onClick=${saveEdit} className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-bold">Save</button>
+          <div className="flex gap-2">
+            <button onClick=${saveEdit} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20">Save</button>
+            <button onClick=${() => setIsEditing(false)} className=${`flex-1 py-3 rounded-xl text-sm font-bold ${isDarkMode ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'}`}>Cancel</button>
+          </div>
         </div>
       ` : html`
-        <div>
-          <h3 className="font-bold mb-4 truncate pr-6">${timer.name}</h3>
-          <div className="text-5xl font-mono-custom font-bold text-center mb-6 tracking-tighter">${formatTime(timer.remainingSeconds)}</div>
-          <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden mb-6">
-            <div className="bg-indigo-500 h-full transition-all" style=${{ width: `${progress}%` }}></div>
+        <div className="flex flex-col h-full">
+          <h3 className=${`font-black text-lg mb-4 truncate pr-6 ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>${timer.name}</h3>
+          
+          <div className=${`text-6xl font-mono-custom font-black text-center mb-6 tracking-tighter tabular-nums ${timer.isRunning ? 'text-indigo-500' : isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            ${formatTime(timer.remainingSeconds)}
           </div>
-          <div className="flex gap-2">
+          
+          <div className=${`w-full h-3 rounded-full overflow-hidden mb-8 ${isDarkMode ? 'bg-slate-900' : 'bg-slate-100'}`}>
+            <div className=${`h-full transition-all duration-300 ${timer.remainingSeconds < 60 ? 'bg-rose-500' : 'bg-indigo-500'}`} style=${{ width: `${progress}%` }}></div>
+          </div>
+          
+          <div className="flex gap-2 mt-auto">
             <button 
               disabled=${isReadOnly}
               onClick=${() => onUpdate(timer.id, { isRunning: !timer.isRunning })}
-              className=${`flex-1 py-3 rounded-xl font-bold transition-all ${timer.isRunning ? 'bg-amber-500 text-white' : 'bg-indigo-600 text-white'}`}
+              className=${`flex-1 py-4 rounded-2xl font-black text-sm uppercase tracking-widest transition-all ${isReadOnly ? 'opacity-50 grayscale' : ''} ${timer.isRunning ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 active:scale-95'}`}
             >
               ${timer.isRunning ? 'Pause' : 'Start'}
             </button>
             <button 
               disabled=${isReadOnly}
               onClick=${() => onUpdate(timer.id, { remainingSeconds: timer.initialSeconds, isRunning: false })}
-              className="px-4 py-3 bg-slate-700 text-white rounded-xl"
+              className=${`px-5 py-4 rounded-2xl font-bold transition-all ${isReadOnly ? 'opacity-50 grayscale' : ''} ${isDarkMode ? 'bg-slate-700 text-slate-300 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              title="Reset"
             >
-              Reset
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             </button>
             ${!isReadOnly && html`
-              <button onClick=${() => setIsEditing(true)} className="px-4 py-3 bg-slate-700 text-white rounded-xl">Edit</button>
+              <button onClick=${() => setIsEditing(true)} className=${`px-5 py-4 rounded-2xl font-bold transition-all ${isDarkMode ? 'bg-slate-700 text-slate-300 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              </button>
             `}
           </div>
         </div>

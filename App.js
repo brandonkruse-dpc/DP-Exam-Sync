@@ -22,10 +22,15 @@ export default function App() {
   const connectionsRef = useRef([]);
   const timersRef = useRef(timers);
 
-  // Sync state reference for peer callbacks
   useEffect(() => {
     timersRef.current = timers;
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+    
     if (role === 'master' && connectionsRef.current.length > 0) {
       const message = { type: 'SYNC_STATE', payload: { timers } };
       connectionsRef.current.forEach(conn => {
@@ -34,9 +39,9 @@ export default function App() {
     }
   }, [timers, role, isDarkMode]);
 
-  // PeerJS Initialization
   useEffect(() => {
-    const peer = new Peer();
+    // Accessing Peer from the window object (loaded via script tag in HTML)
+    const peer = new window.Peer();
     peerRef.current = peer;
 
     peer.on('open', (id) => setPeerId(id));
@@ -59,7 +64,6 @@ export default function App() {
     return () => peer.destroy();
   }, []);
 
-  // Timer Ticking Logic
   useEffect(() => {
     if (role === 'slave') return;
     const interval = setInterval(() => {
@@ -79,7 +83,7 @@ export default function App() {
     if (timers.length >= MAX_TIMERS) return;
     const newTimer = {
       id: Math.random().toString(36).substr(2, 9),
-      name: `Timer ${timers.length + 1}`,
+      name: `Exam Part ${timers.length + 1}`,
       initialSeconds: DEFAULT_TIMER_SECONDS,
       remainingSeconds: DEFAULT_TIMER_SECONDS,
       isRunning: false
@@ -108,31 +112,27 @@ export default function App() {
     });
   };
 
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
-
   return html`
-    <div className=${`min-h-screen transition-colors duration-300 flex flex-col p-4 md:p-8 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+    <div className=${`min-h-screen transition-all duration-500 flex flex-col p-4 md:p-8 ${isDarkMode ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <header className="max-w-7xl mx-auto w-full mb-10">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center justify-between md:block w-full md:w-auto">
-            <div className="flex items-center gap-3 mb-1">
-              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              </div>
-              <h1 className="text-3xl font-extrabold tracking-tight">DP Exam <span className="text-indigo-600">Sync</span></h1>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-xl shadow-indigo-500/20">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
-            <button onClick=${toggleTheme} className="md:hidden p-2 rounded-xl border border-slate-700">
-              ${isDarkMode ? '🌙' : '☀️'}
-            </button>
+            <div>
+              <h1 className="text-3xl font-black tracking-tight">DP Exam <span className="text-indigo-600">Sync</span></h1>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Multi-Device Timer Matrix</p>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick=${toggleTheme} className="hidden md:flex items-center gap-2 px-3 py-2.5 rounded-xl border border-slate-700 font-bold text-sm">
-              ${isDarkMode ? 'Light Mode' : 'Dark Mode'}
+            <button onClick=${() => setIsDarkMode(!isDarkMode)} className=${`p-3 rounded-xl border transition-all ${isDarkMode ? 'bg-slate-800 border-slate-700 text-amber-400' : 'bg-white border-slate-200 text-slate-600'}`}>
+              ${isDarkMode ? '☀️' : '🌙'}
             </button>
             ${role !== 'slave' && html`
-              <button onClick=${addTimer} className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/20">Add Timer</button>
-              <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: true})))} className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/20">Start All</button>
+              <button onClick=${addTimer} className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-all">Add Timer</button>
+              <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: true})))} className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Start All</button>
             `}
           </div>
         </div>
@@ -140,8 +140,8 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto w-full flex-1">
         ${timers.length === 0 ? html`
-          <div className="h-64 border-2 border-dashed border-slate-700 rounded-3xl flex flex-col items-center justify-center text-slate-500">
-            <p>No timers active. Click 'Add Timer' to begin.</p>
+          <div className="h-64 border-4 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-slate-400">
+            <p className="font-bold">Matrix Empty. Initialize a timer to begin.</p>
           </div>
         ` : html`
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -160,21 +160,25 @@ export default function App() {
       </main>
 
       <footer className="mt-12 max-w-7xl mx-auto w-full">
-        <div className=${`p-6 rounded-2xl border ${isDarkMode ? 'bg-slate-800/50 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className=${`p-6 rounded-3xl border-2 transition-all ${isDarkMode ? 'bg-slate-800/40 border-slate-700' : 'bg-white border-slate-200 shadow-xl'}`}>
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Peer Sync ID</p>
-              <p className="text-sm font-mono text-indigo-400 select-all">${peerId || 'Initializing...'}</p>
+            <div className="flex items-center gap-4">
+              <div className=${`w-3 h-3 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
+              <div>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">P2P Sync Node</p>
+                <p className="text-sm font-mono font-bold text-indigo-500 select-all">${peerId || 'Generating...'}</p>
+              </div>
             </div>
+
             ${role === 'standalone' ? html`
-              <div className="flex gap-2">
-                <input value=${targetId} onChange=${(e) => setTargetId(e.target.value)} placeholder="Enter Master ID" className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white" />
-                <button onClick=${connectToPeer} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm shadow-md">Connect</button>
+              <div className="flex gap-2 w-full lg:w-auto">
+                <input value=${targetId} onChange=${(e) => setTargetId(e.target.value)} placeholder="Enter Master ID" className=${`flex-1 lg:w-64 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} />
+                <button onClick=${connectToPeer} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-colors">Join</button>
               </div>
             ` : html`
-              <div className="flex items-center gap-4">
-                <span className="text-sm font-bold text-indigo-400 capitalize">${role} Mode Active</span>
-                <button onClick=${() => { connectionsRef.current.forEach(c => c.close()); setRole('standalone'); }} className="text-rose-500 font-bold text-sm">Disconnect</button>
+              <div className="flex items-center gap-6">
+                <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role} Role Active</span>
+                <button onClick=${() => { connectionsRef.current.forEach(c => c.close()); setRole('standalone'); }} className="px-4 py-1.5 bg-rose-500/10 text-rose-500 rounded-lg font-bold text-xs hover:bg-rose-500 hover:text-white transition-all">Disconnect</button>
               </div>
             `}
           </div>
