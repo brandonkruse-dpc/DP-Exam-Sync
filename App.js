@@ -6,7 +6,7 @@ import TimerCard from './components/TimerCard.js';
 const html = htm.bind(React.createElement);
 const MAX_TIMERS = 12;
 const MAX_SLAVES = 4;
-const DEFAULT_TIMER_SECONDS = 3600; // Default to 1 hour
+const DEFAULT_TIMER_SECONDS = 3600; 
 const RECONNECT_INTERVAL = 3000;
 
 export default function App() {
@@ -16,17 +16,25 @@ export default function App() {
   const [targetId, setTargetId] = useState('');
   const [connectedPeersCount, setConnectedPeersCount] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [isServerConnected, setIsServerConnected] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
     return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   const peerRef = useRef(null);
-  const connectionsRef = useRef([]); // Master stores many, Slave stores one
+  const connectionsRef = useRef([]); 
   const timersRef = useRef(timers);
   const reconnectTimeoutRef = useRef(null);
+  const roleRef = useRef(role);
+  const targetIdRef = useRef(targetId);
 
-  // Persistence and Theme Sync
+  useEffect(() => {
+    roleRef.current = role;
+    targetIdRef.current = targetId;
+  }, [role, targetId]);
+
+  // Sync timers and broadcast
   useEffect(() => {
     timersRef.current = timers;
     if (isDarkMode) {
@@ -36,7 +44,6 @@ export default function App() {
     }
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     
-    // Broadcast state to all connected peers if we are the master
     if (role === 'master' && connectionsRef.current.length > 0) {
       const message = { type: 'SYNC_STATE', payload: { timers } };
       connectionsRef.current.forEach(conn => {
@@ -47,24 +54,54 @@ export default function App() {
     }
   }, [timers, role, isDarkMode]);
 
-  // PeerJS Initialization
-  useEffect(() => {
+  // Initialize Peer and handle Signaling Server
+  const initPeer = () => {
+    if (peerRef.current && !peerRef.current.destroyed) return;
+
     const shortId = Math.floor(100000 + Math.random() * 900000).toString();
     const peer = new window.Peer(shortId, {
-      debug: 1
+      debug: 1,
+      config: {
+        'iceServers': [
+          { url: 'stun:stun.l.google.com:19302' },
+          { url: 'stun:stun1.l.google.com:19302' }
+        ]
+      }
     });
+
     peerRef.current = peer;
 
-    peer.on('open', (id) => setPeerId(id));
+    peer.on('open', (id) => {
+      setPeerId(id);
+      setIsServerConnected(true);
+    });
+
+    peer.on('disconnected', () => {
+      setIsServerConnected(false);
+      console.log('Peer disconnected from signaling server. Attempting reconnection...');
+      peer.reconnect();
+    });
+
+    peer.on('close', () => {
+      setIsServerConnected(false);
+      setConnectionStatus('disconnected');
+    });
+
+    peer.on('error', (err) => {
+      console.error('PeerJS signaling error:', err);
+      if (err.type === 'network' || err.type === 'server-error' || err.type === 'lost-connection') {
+        setIsServerConnected(false);
+        setTimeout(initPeer, RECONNECT_INTERVAL);
+      }
+    });
 
     // Master Logic: Handle incoming connections
     peer.on('connection', (conn) => {
-      // Limit to MAX_SLAVES
       const activeConns = connectionsRef.current.filter(c => c.open);
       if (activeConns.length >= MAX_SLAVES) {
         conn.on('open', () => {
-          conn.send({ type: 'ERROR', message: 'Master node reached maximum capacity (4 clients).' });
-          setTimeout(() => conn.close(), 1000);
+          conn.send({ type: 'ERROR', message: 'Master node full (Max 4).' });
+          setTimeout(() => conn.close(), 500);
         });
         return;
       }
@@ -77,44 +114,32 @@ export default function App() {
           connectionsRef.current.push(conn);
         }
         setConnectedPeersCount(connectionsRef.current.filter(c => c.open).length);
-        // Immediate initial sync
         conn.send({ type: 'SYNC_STATE', payload: { timers: timersRef.current } });
       });
 
-      conn.on('close', () => {
+      const handleCleanup = () => {
         connectionsRef.current = connectionsRef.current.filter(c => c.peer !== conn.peer);
         const remaining = connectionsRef.current.filter(c => c.open).length;
         setConnectedPeersCount(remaining);
-        if (remaining === 0) {
+        if (remaining === 0 && roleRef.current === 'master') {
           setRole('standalone');
           setConnectionStatus('disconnected');
         }
-      });
+      };
 
-      conn.on('error', () => {
-        connectionsRef.current = connectionsRef.current.filter(c => c.peer !== conn.peer);
-        setConnectedPeersCount(connectionsRef.current.filter(c => c.open).length);
-      });
+      conn.on('close', handleCleanup);
+      conn.on('error', handleCleanup);
     });
+  };
 
-    peer.on('disconnected', () => {
-      peer.reconnect();
-    });
-
-    peer.on('error', (err) => {
-      console.error('Peer error:', err);
-      if (err.type === 'unavailable-id') {
-        // ID Collision, unlikely but possible
-        window.location.reload();
-      }
-    });
-
+  useEffect(() => {
+    initPeer();
     return () => {
       if (peerRef.current) peerRef.current.destroy();
     };
   }, []);
 
-  // Timer Ticking Logic (Master & Standalone only)
+  // Timer ticking for Master/Standalone
   useEffect(() => {
     if (role === 'slave') return;
     const interval = setInterval(() => {
@@ -130,19 +155,22 @@ export default function App() {
     return () => clearInterval(interval);
   }, [role]);
 
-  // Slave Reconnection logic
-  const attemptReconnect = (target) => {
-    if (role !== 'slave' || !target) return;
-    console.log(`Attempting auto-reconnect to ${target}...`);
-    connectToPeer(target);
-  };
-
-  const connectToPeer = (idToConnect) => {
-    const target = idToConnect || targetId;
-    if (!target || !peerRef.current) return;
+  // Connect function (Used by Slave)
+  const connectToMaster = (forcedId) => {
+    const target = forcedId || targetId;
+    if (!target || !peerRef.current || peerRef.current.destroyed) {
+      if (!peerRef.current || peerRef.current.destroyed) initPeer();
+      return;
+    }
     
     setConnectionStatus('connecting');
-    const conn = peerRef.current.connect(target, { reliable: true });
+    // Ensure we close any stale connections before opening a new one
+    connectionsRef.current.forEach(c => c.close());
+    
+    const conn = peerRef.current.connect(target, { 
+      reliable: true,
+      label: 'sync-channel'
+    });
     
     conn.on('open', () => {
       setRole('slave');
@@ -163,23 +191,16 @@ export default function App() {
       }
     });
 
-    conn.on('close', () => {
-      if (role === 'slave') {
+    const handleSlaveDisconnect = () => {
+      if (roleRef.current === 'slave') {
         setConnectionStatus('reconnecting');
-        reconnectTimeoutRef.current = setTimeout(() => attemptReconnect(target), RECONNECT_INTERVAL);
-      } else {
-        setConnectionStatus('disconnected');
-        setRole('standalone');
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = setTimeout(() => connectToMaster(target), RECONNECT_INTERVAL);
       }
-    });
+    };
 
-    conn.on('error', (err) => {
-      console.error("Connection error:", err);
-      setConnectionStatus('error');
-      if (role === 'slave') {
-        reconnectTimeoutRef.current = setTimeout(() => attemptReconnect(target), RECONNECT_INTERVAL);
-      }
-    });
+    conn.on('close', handleSlaveDisconnect);
+    conn.on('error', handleSlaveDisconnect);
   };
 
   const disconnectAll = () => {
@@ -213,8 +234,9 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-3xl font-black tracking-tight">DP Exam <span className="text-indigo-600">Sync</span></h1>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                ${role === 'slave' ? html`<span className="text-emerald-500 animate-pulse">Syncing Active</span>` : 'Global Synchronized Timer Array'}
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+                ${isServerConnected ? html`<span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Signaling Online` : html`<span className="w-2 h-2 rounded-full bg-rose-500"></span> Server Offline`}
+                ${role === 'slave' && html`<span className="text-emerald-500 ml-2">• P2P Active</span>`}
               </p>
             </div>
           </div>
@@ -228,11 +250,6 @@ export default function App() {
               <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: true})))} className="px-5 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Start All</button>
               <button onClick=${() => setTimers(timers.map(t => ({...t, isRunning: false})))} className=${`px-5 py-3 rounded-xl font-bold text-sm transition-all ${isDarkMode ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-700'}`}>Pause All</button>
             `}
-            ${role === 'slave' && html`
-               <div className="px-5 py-3 bg-indigo-600/10 text-indigo-500 rounded-xl font-bold text-sm border border-indigo-500/20">
-                  Slave Monitoring Mode
-               </div>
-            `}
           </div>
         </div>
       </header>
@@ -241,8 +258,8 @@ export default function App() {
         ${timers.length === 0 ? html`
           <div className="h-64 border-4 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-slate-400">
             <svg className="w-16 h-16 mb-4 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <p className="font-bold text-lg">No timers active.</p>
-            <p className="text-sm">Master node must deploy sequences to display here.</p>
+            <p className="font-bold text-lg">Cluster Inactive</p>
+            <p className="text-sm">Master node must initialize sequences.</p>
           </div>
         ` : html`
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -266,12 +283,12 @@ export default function App() {
             <div className="flex items-center gap-4">
               <div className=${`w-4 h-4 rounded-full ${connectionStatus === 'connected' ? 'bg-emerald-500' : connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'}`}></div>
               <div>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Network Status: ${connectionStatus.toUpperCase()}</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Cluster ID: ${connectionStatus.toUpperCase()}</p>
                 <div className="flex items-center gap-2">
                   <p className="text-xl font-mono font-bold text-indigo-500 select-all tracking-widest">${peerId || '...'}</p>
                   ${role === 'master' && html`
                     <span className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">
-                      Master • ${connectedPeersCount} / ${MAX_SLAVES} Clients Connected
+                      Master • ${connectedPeersCount} / ${MAX_SLAVES} Sync Active
                     </span>
                   `}
                 </div>
@@ -284,25 +301,22 @@ export default function App() {
                   type="text"
                   value=${targetId} 
                   onChange=${(e) => setTargetId(e.target.value)} 
-                  placeholder="Enter Master 6-Digit ID" 
-                  className=${`flex-1 lg:w-64 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
+                  placeholder="Master ID" 
+                  className=${`flex-1 lg:w-48 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono ${isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200'}`} 
                 />
-                <button onClick=${() => connectToPeer()} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-500/20">Join Network</button>
+                <button onClick=${() => connectToMaster()} className="bg-indigo-600 text-white px-8 py-2 rounded-xl font-bold text-sm hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-500/20">Join Network</button>
               </div>
             ` : html`
               <div className="flex items-center gap-6">
                 <div className="flex flex-col items-end">
-                   <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role === 'slave' ? 'Connected to Master Node' : 'Broadcasting Cluster'}</span>
-                   ${role === 'slave' && connectionStatus === 'reconnecting' && html`<span className="text-[10px] text-amber-500 font-bold">Auto-reconnect active...</span>`}
+                   <span className="text-sm font-black text-indigo-500 uppercase tracking-widest">${role === 'slave' ? 'Slave Node Synced' : 'Cluster Authority'}</span>
+                   ${role === 'slave' && connectionStatus === 'reconnecting' && html`<span className="text-[10px] text-amber-500 font-bold animate-pulse">Searching for Master...</span>`}
                 </div>
                 <button onClick=${disconnectAll} className="px-4 py-2 bg-rose-500/10 text-rose-500 rounded-xl font-bold text-xs hover:bg-rose-500 hover:text-white transition-all">Disconnect</button>
               </div>
             `}
           </div>
         </div>
-        <p className="text-[10px] text-center mt-4 text-slate-500 font-medium tracking-tight">
-           * Support for up to 4 synchronized secondary screens. Slaves will automatically attempt to reconnect if the session is interrupted.
-        </p>
       </footer>
     </div>
   `;
